@@ -3,7 +3,9 @@ import logging
 import asyncio
 import random
 import sqlite3
+import threading
 import time
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -417,9 +419,38 @@ async def on_error(update, context: ContextTypes.DEFAULT_TYPE):
 # APPLICATION STARTUP
 # ==================================================
 
+def start_health_server():
+    """If Render gives us a PORT (Web Service), open it so Render
+    sees the service as healthy. Does nothing on a Background Worker."""
+    port = os.getenv("PORT")
+    if not port:
+        return
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"G168-SPORT bot is running")
+
+        def do_HEAD(self):
+            self.send_response(200)
+            self.end_headers()
+
+        def log_message(self, *args):
+            pass
+
+    server = HTTPServer(("0.0.0.0", int(port)), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    logger.info("Health server listening on port %s", port)
+
+
 async def post_init(application: Application):
     conn = db_connection()
     conn.close()
+
+    # Proves the token works. Fails loudly in the logs if it does not.
+    me = await application.bot.get_me()
+    logger.info("Connected to Telegram as @%s", me.username)
 
     all_images = [WELCOME_IMAGE, *ROTATION_IMAGES]
     missing = [p.name for p in all_images if not p.is_file()]
@@ -468,6 +499,8 @@ def main():
     # Python 3.14 no longer creates an event loop automatically,
     # which python-telegram-bot 21.x expects. Create one explicitly.
     asyncio.set_event_loop(asyncio.new_event_loop())
+
+    start_health_server()
 
     logger.info("Starting G168-SPORT bot.")
     app.run_polling(drop_pending_updates=True)
