@@ -32,7 +32,7 @@ WELCOME_TEXT = """Welcome To G168-SPORT
 
 សូមស្វាគមន៍មកកាន់ G168-SPORT!
 
-ទទួលបានព័ត៌មានកីឡា ព័ត៌មានបាល់ទាត់ លទ្ធផល និងព័ត៌មានថ្មីៗនៅទីនេះ។
+ទទួលបានព័ត៌មានកីឡា ព័ត៌មានបាល់ទាត់ លទ្ធផល និងព័ត៌មានថ្មីៗនៅទីយើង។
 
 សូមជ្រើសរើសជម្រើសខាងក្រោម 👇"""
 
@@ -76,7 +76,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     active_users.add(user_id)
     logger.info(f"New user started the bot: {user_id}")
 
-    # Explicitly send image1.jpg for the /start command
+    # Explicitly use reply_photo to send the welcome image
     welcome_image_path = IMAGE_FILES[0]
     try:
         if os.path.exists(welcome_image_path):
