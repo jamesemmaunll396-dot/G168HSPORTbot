@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 # ការកំណត់តេឡេក្រាមតូខន
 TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")  
 
-# អត្ថបទស្វាគមន៍ពិតប្រាកដស្របតាមរូបភាពរបស់អ្នក
+# អត្ថបទស្វាគមន៍
 WELCOME_TEXT = """Welcome To G168-SPORT
 
 សូមស្វាគមន៍មកកាន់ G168-SPORT!
@@ -36,14 +36,14 @@ WELCOME_TEXT = """Welcome To G168-SPORT
 
 សូមជ្រើសរើសជម្រើសខាងក្រោម 👇"""
 
-# ប៊ូតុងតំណភ្ជាប់ស្របតាមរូបភាពរបស់អ្នក
+# ប៊ូតុងតំណភ្ជាប់
 reply_markup = InlineKeyboardMarkup([
     [InlineKeyboardButton("💬 DM NOW", url="https://t.me/GOALWIN855")],
     [InlineKeyboardButton("🌐 WEBSITE", url="https://heylink.me/855goal/")],
     [InlineKeyboardButton("📢 CHANNEL UPDATE", url="https://t.me/Game855GOAL")]
 ])
 
-# សារផ្សព្វផ្សាយជាភាសាខ្មែរសម្រាប់ផ្ញើស្វ័យប្រវត្តិរៀងរាល់ ៣ ម៉ោងម្តង
+# សារផ្សព្វផ្សាយជាភាសាខ្មែរ
 PROMO_MESSAGES_KH = [
     "🔥 ចុះឈ្មោះនៅលើគេហទំព័ររបស់យើងថ្ងៃនេះ ដើម្បីទទួលបានកាដូឥតគិតថ្លៃ ១០០$ ⭐️",
     "🎁 ចូលរួមជាមួយគេហទំព័រយើងថ្ងៃនេះ ហើយស្វែងរកប្រាក់រង្វាន់ឥតគិតថ្លៃជាច្រើន 🎁",
@@ -57,7 +57,7 @@ PROMO_MESSAGES_KH = [
     "⭐️ កុំឱ្យឱកាសនេះកន្លងផុត! ចុះឈ្មោះលើគេហទំព័រយើងថ្ងៃនេះដើម្បីទាមទារប្រាក់រង្វាន់ឥតគិតថ្លៃរបស់អ្នក ⭐️"
 ]
 
-# បញ្ជីរក្សាទុក ID អ្នកប្រើប្រាស់ដែលបានចាប់ផ្តើម bot
+# បញ្ជីរក្សាទុក ID អ្នកប្រើប្រាស់
 active_users = set()
 
 # បញ្ជីរូបភាព
@@ -69,14 +69,13 @@ IMAGE_FILES = [
     "images/image5.jpg",
     "images/image6.jpg"
 ]
-current_image_index = 1  # ចាប់ផ្តើមរាប់ពីលេខ ១ សម្រាប់ពេលផ្ញើក្នុងរង្វង់ ៣ ម៉ោង
+current_image_index = 1
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     active_users.add(user_id)
     logger.info(f"អ្នកប្រើប្រាស់ថ្មីបានចាប់ផ្តើម Bot: {user_id}")
 
-    # ផ្ញើរូបភាពទី១ ព្រមទាំងអត្ថបទស្វាគមន៍ និងប៊ូតុង
     if os.path.exists(IMAGE_FILES[0]):
         with open(IMAGE_FILES[0], "rb") as photo:
             await update.message.reply_photo(
@@ -122,6 +121,8 @@ def send_scheduled_updates(application):
                         text=caption_text, 
                         reply_markup=reply_markup
                     )
+                # หน่วงពេល (Sleep) 0.1 វិនាទីរវាងការផ្ញើក្នុងម្នាក់ៗ ដើម្បីការពារ Telegram Rate Limit
+                await asyncio.sleep(0.1)
             except Exception as e:
                 logger.error(f"បរាជ័យក្នុងការផ្ញើសារទៅកាន់ {user_id}: {e}")
                 active_users.discard(user_id)
@@ -129,7 +130,7 @@ def send_scheduled_updates(application):
     loop.run_until_complete(broadcast())
     loop.close()
 
-    # ប្តូរទៅរូបភាពបន្ទាប់ និងរង្វិលត្រឡប់មកដើមវិញ
+    # ប្តូរទៅរូបភាពបន្ទាប់
     current_image_index = (current_image_index + 1) % len(IMAGE_FILES)
     if current_image_index == 0:
         current_image_index = 1
@@ -142,11 +143,12 @@ def main():
     application = ApplicationBuilder().token(TOKEN).build()
     application.add_handler(CommandHandler("start", start))
 
+    # កំណត់កាលវិភាគស្វ័យប្រវត្តិប្តូរមកត្រឹម ១ ម៉ោងម្តង (hours=1)
     scheduler = BackgroundScheduler()
-    scheduler.add_job(send_scheduled_updates, 'interval', hours=3, args=[application])
+    scheduler.add_job(send_scheduled_updates, 'interval', hours=1, args=[application])
     scheduler.start()
 
-    logger.info("Bot កំពុងចាប់ផ្តើមដំណើរការហើយ...")
+    logger.info("Bot កំពុងចាប់ផ្តើមដំណើរការហើយ (ផ្ញើជូនរៀងរាល់ ១ ម៉ោងម្តង)...")
     application.run_polling()
 
 if __name__ == "__main__":
