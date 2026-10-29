@@ -1,12 +1,9 @@
-your-repo-name/
-│
-├── bot.py
-├── requirements.txt
-├── Procfile
-└── images/
-    ├── image1.jpg
-    ├── image2.jpg
-    ├── image3.jpg
-    ├── image4.jpg
-    ├── image5.jpg
-    └── image6.jpg
+
+IMAGE_FILES = [
+    BASE_DIR / "5985379721660800813.jpg",  # First welcome image
+    BASE_DIR / "5985379721660800808.jpg",
+    BASE_DIR / "5985379721660800809.jpg",
+    BASE_DIR / "5985379721660800810.jpg",
+    BASE_DIR / "5985379721660800811.jpg",
+    BASE_DIR / "5985379721660800812.jpg",
+]
