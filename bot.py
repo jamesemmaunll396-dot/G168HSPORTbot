@@ -6,6 +6,18 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler
 from apscheduler.schedulers.background import BackgroundScheduler
 
+# ដោះស្រាយបញ្ហា Event Loop សម្រាប់ Python 3.14+
+try:
+    asyncio.get_running_loop()
+except RuntimeError:
+    try:
+        loop = asyncio.get_event_loop_policy().get_event_loop()
+        if loop.is_closed():
+            raise RuntimeError()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
 # បើកដំណើរការប្រព័ន្ធ Logging
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
@@ -15,25 +27,30 @@ logger = logging.getLogger(__name__)
 # ការកំណត់តេឡេក្រាមតូខន
 TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")  
 
-# អត្ថបទស្វាគមន៍ជាភាសាខ្មែរ
-WELCOME_TEXT = """Wecome To 855GOAL
-សូមស្វាគមន៍មកកាន់គេហទំព័រ 855GOAL ដែលជាគោលដៅដ៏ល្អបំផុតសម្រាប់អ្វីៗគ្រប់យ៉ាងដែលទាក់ទងនឹងការបង្កើនសមត្ថភាព និងការសម្រេចគោលដៅរបស់អ្នក។ សូមស្វែងយល់ពីធនធាន គន្លឹះ និងឧបករណ៍នានាដែលត្រូវបានរៀបចំឡើងដើម្បីផ្តល់ថាមពល និងការគាំទ្រដល់អ្នកនៅលើដំណើរឆ្ពោះទៅរកភាពជោគជ័យ។"""
+# អត្ថបទស្វាគមន៍ពិតប្រាកដស្របតាមរូបភាពរបស់អ្នក
+WELCOME_TEXT = """Welcome To G168-SPORT
 
-# ប៊ូតុងតំណភ្ជាប់តាមទម្រង់រូបភាពដែលបានកំណត់ (DM NOW, WEBSITE, CHANNEL UPDATE)
+សូមស្វាគមន៍មកកាន់ G168-SPORT!
+
+ទទួលបានព័ត៌មានកីឡា ព័ត៌មានបាល់ទាត់ លទ្ធផល និងព័ត៌មានថ្មីៗនៅទីនេះ។
+
+សូមជ្រើសរើសជម្រើសខាងក្រោម 👇"""
+
+# ប៊ូតុងតំណភ្ជាប់ស្របតាមរូបភាពរបស់អ្នក
 reply_markup = InlineKeyboardMarkup([
     [InlineKeyboardButton("💬 DM NOW", url="https://t.me/GOALWIN855")],
     [InlineKeyboardButton("🌐 WEBSITE", url="https://heylink.me/855goal/")],
     [InlineKeyboardButton("📢 CHANNEL UPDATE", url="https://t.me/Game855GOAL")]
 ])
 
-# បញ្ជីសារផ្សព្វផ្សាយទាក់ទាញជាភាសាខ្មែរសម្រាប់ផ្ញើស្វ័យប្រវត្តិរៀងរាល់ ៣ ម៉ោងម្តង (ប្តូរវេនគ្នា)
+# សារផ្សព្វផ្សាយជាភាសាខ្មែរសម្រាប់ផ្ញើស្វ័យប្រវត្តិរៀងរាល់ ៣ ម៉ោងម្តង
 PROMO_MESSAGES_KH = [
     "🔥 ចុះឈ្មោះនៅលើគេហទំព័ររបស់យើងថ្ងៃនេះ ដើម្បីទទួលបានកាដូឥតគិតថ្លៃ ១០០$ ⭐️",
     "🎁 ចូលរួមជាមួយគេហទំព័រយើងថ្ងៃនេះ ហើយស្វែងរកប្រាក់រង្វាន់ឥតគិតថ្លៃជាច្រើន 🎁",
     "⭐ ចុះឈ្មោះឥឡូវនេះ ដើម្បីទទួលបានពិន្ទុប្រាក់រង្វាន់ ១០០$ ភ្លាមៗ ⭐️",
-    "💰 តាមដានពួកเราគ្រប់បណ្តាញសង្គមទាំងអស់ ដើម្បីទទួលបានរង្វាន់ពិសេសៗខុសពីគេ 💰",
+    "💰 តាមដានពួកយើងគ្រប់បណ្តាញសង្គមទាំងអស់ ដើម្បីទទួលបានរង្វាន់ពិសេសៗខុសពីគេ 💰",
     "🎉 បង្កើតគណនីនៅលើគេហទំព័ររបស់យើងថ្ងៃនេះ ដើម្បីទទួលបានប្រាក់រង្វាន់ស្វាគមន៍ 🎉",
-    "⭐️ ចុះឈ្មោះថ្ងៃនេះ បំពេញតាមលក្ខខណ្ឌ រួចรับផ្កាយរង្វាន់ដោយឥតគិតថ្លៃ ⭐️",
+    "⭐️ ចុះឈ្មោះថ្ងៃនេះ បំពេញតាមលក្ខខណ្ឌ រួចទទួលបានផ្កាយរង្វាន់ដោយឥតគិតថ្លៃ ⭐️",
     "🎁 ចូលរួមក្នុងសហគមន៍យើង តាមដានទំព័ររបស់យើង និងទទួលបានប្រាក់រង្វាន់ពិសេសៗ 🎁",
     "🌟 ចុះឈ្មោះលើគេហទំព័រយើងថ្ងៃនេះ ថែមទាំងទទួលបានផ្កាយរង្វាន់ ១០០ ទៀតផង 🌟",
     "💸 តាមដានយើងគ្រប់ទីកន្លែង ចុះឈ្មោះលើគេហទំព័រយើងដើម្បីដោះសោរង្វាន់អស្ចារ្យជាច្រើន 💸",
@@ -59,7 +76,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     active_users.add(user_id)
     logger.info(f"អ្នកប្រើប្រាស់ថ្មីបានចាប់ផ្តើម Bot: {user_id}")
 
-    # ផ្ញើរូបភាពទី១ ព្រមទាំងអត្ថបទស្វាគមន៍ និងប៊ូតុងតំណភ្ជាប់ (គ្មានអត្ថបទបញ្ជា /stop ទេ។)
+    # ផ្ញើរូបភាពទី១ ព្រមទាំងអត្ថបទស្វាគមន៍ និងប៊ូតុង
     if os.path.exists(IMAGE_FILES[0]):
         with open(IMAGE_FILES[0], "rb") as photo:
             await update.message.reply_photo(
@@ -76,13 +93,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def send_scheduled_updates(application):
     global current_image_index
     if not active_users:
-        logger.info("មិនមានអ្នកប្រើប្រាស់សកម្មសម្រាប់ផ្ើសើសារទេ។")
+        logger.info("មិនមានអ្នកប្រើប្រាស់សកម្មសម្រាប់ផ្ញើសារទេ។")
         return
 
     image_path = IMAGE_FILES[current_image_index]
-    
-    # ជ្រើសរើសសារជាភាសាខ្មែរដោយចៃដន្យដើម្បីធ្វើបច្ចុប្បន្នភាពរៀងរាល់ ៣ ម៉ោង
-    caption_text = f"🔥 **855GOAL Update**\n\n{random.choice(PROMO_MESSAGES_KH)}"
+    caption_text = f"🔥 **G168-SPORT Update**\n\n{random.choice(PROMO_MESSAGES_KH)}"
 
     logger.info(f"កំពុងផ្ញើរូបភាពលំដាប់ទី {current_image_index} ទៅកាន់អ្នកប្រើប្រាស់ចំនួន {len(active_users)} នាក់។")
 
@@ -114,10 +129,10 @@ def send_scheduled_updates(application):
     loop.run_until_complete(broadcast())
     loop.close()
 
-    # ប្តូរទៅរូបភាពបន្ទាប់ និងរង្វិលត្រឡប់មកដើមវិញប្រសិនបើអស់ពីបញ្ជី
+    # ប្តូរទៅរូបភាពបន្ទាប់ និងរង្វិលត្រឡប់មកដើមវិញ
     current_image_index = (current_image_index + 1) % len(IMAGE_FILES)
     if current_image_index == 0:
-        current_image_index = 1  # រំលងរូបភាពទី០ ក្នុងពេលផ្ញើស្វ័យប្រវត្តិរៀងរាល់ ៣ ម៉ោង
+        current_image_index = 1
 
 def main():
     if not TOKEN:
@@ -125,11 +140,8 @@ def main():
         return
 
     application = ApplicationBuilder().token(TOKEN).build()
-
-    # ចុះឈ្មោះ Command Handler សម្រាប់ /start
     application.add_handler(CommandHandler("start", start))
 
-    # កំណត់កាលវិភាគស្វ័យប្រវត្តិរៀងរាល់ ៣ ម៉ោងម្តង
     scheduler = BackgroundScheduler()
     scheduler.add_job(send_scheduled_updates, 'interval', hours=3, args=[application])
     scheduler.start()
