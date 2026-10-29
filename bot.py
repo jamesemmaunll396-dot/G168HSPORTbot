@@ -465,6 +465,10 @@ def main():
     app.add_handler(CommandHandler("status", status))
     app.add_error_handler(on_error)
 
+    # Python 3.14 no longer creates an event loop automatically,
+    # which python-telegram-bot 21.x expects. Create one explicitly.
+    asyncio.set_event_loop(asyncio.new_event_loop())
+
     logger.info("Starting G168-SPORT bot.")
     app.run_polling(drop_pending_updates=True)
 
