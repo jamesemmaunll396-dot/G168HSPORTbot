@@ -1,5 +1,0 @@
-
-.env
-__pycache__/
-*.py[cod]
-855goal_users.sqlite3
