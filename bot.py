@@ -43,7 +43,7 @@ reply_markup = InlineKeyboardMarkup([
     [InlineKeyboardButton("📢 CHANNEL UPDATE", url="https://t.me/Game855GOAL")]
 ])
 
-# Promotional messages in Khmer
+# Promotional messages in Khmer for 2-hour updates
 PROMO_MESSAGES_KH = [
     "🔥 ចុះឈ្មោះនៅលើគេហទំព័ររបស់យើងថ្ងៃនេះ ដើម្បីទទួលបានកាដូឥតគិតថ្លៃ ១០០$ ⭐️",
     "🎁 ចូលរួមជាមួយគេហទំព័រយើងថ្ងៃនេះ ហើយស្វែងរកប្រាក់រង្វាន់ឥតគិតថ្លៃជាច្រើន 🎁",
@@ -60,30 +60,40 @@ PROMO_MESSAGES_KH = [
 # Store active users
 active_users = set()
 
-# Image files list
+# Image files list (image1.jpg is strictly for the welcome message)
 IMAGE_FILES = [
-    "images/image1.jpg",
-    "images/image2.jpg",
-    "images/image3.jpg",
-    "images/image4.jpg",
-    "images/image5.jpg",
-    "images/image6.jpg"
+    "images/image1.jpg",  # Welcome Image
+    "images/image2.jpg",  # Rotation 1
+    "images/image3.jpg",  # Rotation 2
+    "images/image4.jpg",  # Rotation 3
+    "images/image5.jpg",  # Rotation 4
+    "images/image6.jpg"   # Rotation 5
 ]
-current_image_index = 1
+current_image_index = 1  # 2-hour loop starts from image2.jpg onwards
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     active_users.add(user_id)
     logger.info(f"New user started the bot: {user_id}")
 
-    if os.path.exists(IMAGE_FILES[0]):
-        with open(IMAGE_FILES[0], "rb") as photo:
-            await update.message.reply_photo(
-                photo=photo, 
-                caption=WELCOME_TEXT, 
+    # Explicitly send image1.jpg for the /start command
+    welcome_image_path = IMAGE_FILES[0]
+    try:
+        if os.path.exists(welcome_image_path):
+            with open(welcome_image_path, "rb") as photo:
+                await update.message.reply_photo(
+                    photo=photo, 
+                    caption=WELCOME_TEXT, 
+                    reply_markup=reply_markup
+                )
+        else:
+            logger.error(f"Welcome image not found at {welcome_image_path}!")
+            await update.message.reply_text(
+                text=WELCOME_TEXT, 
                 reply_markup=reply_markup
             )
-    else:
+    except Exception as e:
+        logger.error(f"Failed to send welcome image: {e}")
         await update.message.reply_text(
             text=WELCOME_TEXT, 
             reply_markup=reply_markup
@@ -98,7 +108,7 @@ def send_scheduled_updates(application):
     image_path = IMAGE_FILES[current_image_index]
     caption_text = f"🔥 **G168-SPORT Update**\n\n{random.choice(PROMO_MESSAGES_KH)}"
 
-    logger.info(f"Broadcasting image index {current_image_index} to {len(active_users)} users.")
+    logger.info(f"Broadcasting image index {current_image_index} ({image_path}) to {len(active_users)} users.")
 
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
@@ -121,7 +131,7 @@ def send_scheduled_updates(application):
                         text=caption_text, 
                         reply_markup=reply_markup
                     )
-                # Small delay to prevent rate limits
+                # Small delay to prevent hitting Telegram rate limits
                 await asyncio.sleep(0.1)
             except Exception as e:
                 logger.error(f"Failed to send message to {user_id}: {e}")
@@ -130,9 +140,9 @@ def send_scheduled_updates(application):
     loop.run_until_complete(broadcast())
     loop.close()
 
-    # Rotate to next image
-    current_image_index = (current_image_index + 1) % len(IMAGE_FILES)
-    if current_image_index == 0:
+    # Rotate to next image (loops between indices 1 to 5, skipping index 0)
+    current_image_index = current_image_index + 1
+    if current_image_index >= len(IMAGE_FILES):
         current_image_index = 1
 
 def main():
@@ -143,7 +153,7 @@ def main():
     application = ApplicationBuilder().token(TOKEN).build()
     application.add_handler(CommandHandler("start", start))
 
-    # Scheduled updates set to every 2 hours (hours=2)
+    # Scheduled background updates set to every 2 hours
     scheduler = BackgroundScheduler()
     scheduler.add_job(send_scheduled_updates, 'interval', hours=2, args=[application])
     scheduler.start()
