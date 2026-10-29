@@ -1,32 +1,27 @@
-
 import os
 import logging
 import asyncio
 import random
 import sqlite3
+import threading
 import time
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.error import Forbidden, TelegramError
+from telegram.error import Forbidden, TelegramError, Conflict
 from telegram.ext import (
-    Application,
-    ApplicationBuilder,
-    CommandHandler,
-    ContextTypes,
+    Application, ApplicationBuilder, CommandHandler,
+    ContextTypes, MessageHandler, filters,
 )
-
-# ==================================================
-# CONFIGURATION
-# ==================================================
 
 BASE_DIR = Path(__file__).resolve().parent
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 
-# Send the first automatic message 2 hours after /start,
-# then repeat every 2 hours.
-START_DELAY_SECONDS = 2 * 60 * 60
-BROADCAST_INTERVAL_SECONDS = 2 * 60 * 60
+# First reminder 3 hours after /start, then every 3 hours.
+REMINDER_INTERVAL_SECONDS = 3 * 60 * 60
+# The bot checks due times once a minute; it does NOT message every minute.
+CHECK_INTERVAL_SECONDS = 60
 
 DATA_DIR = Path(os.getenv("DATA_DIR", str(BASE_DIR)))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -38,10 +33,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger("G168-SPORT")
 
-# ==================================================
-# ORIGINAL WELCOME MESSAGE
-# ==================================================
-
 WELCOME_TEXT = """Welcome To G168-SPORT
 
 សូមស្វាគមន៍មកកាន់ G168-SPORT!
@@ -50,32 +41,14 @@ WELCOME_TEXT = """Welcome To G168-SPORT
 
 សូមជ្រើសរើសជម្រើសខាងក្រោម 👇"""
 
-# ==================================================
-# ORIGINAL BUTTONS
-# ==================================================
-
 KEYBOARD = InlineKeyboardMarkup([
-    [InlineKeyboardButton(
-        "💬 DM NOW",
-        url="https://t.me/GOALWIN855"
-    )],
-    [InlineKeyboardButton(
-        "🌐 WEBSITE",
-        url="https://heylink.me/855goal/"
-    )],
-    [InlineKeyboardButton(
-        "📢 CHANNEL UPDATE",
-        url="https://t.me/Game855GOAL"
-    )],
+    [InlineKeyboardButton("💬 DM NOW", url="https://t.me/GOALWIN855")],
+    [InlineKeyboardButton("🌐 WEBSITE", url="https://heylink.me/855goal/")],
+    [InlineKeyboardButton("📢 CHANNEL UPDATE", url="https://t.me/Game855GOAL")],
 ])
 
-# ==================================================
-# ORIGINAL IMAGE FILES
-# Keep all JPG files beside bot.py.
-# ==================================================
-
+# Keep all six original JPG files in the same GitHub folder as bot.py.
 WELCOME_IMAGE = BASE_DIR / "5985379721660800813.jpg"
-
 ROTATION_IMAGES = [
     BASE_DIR / "5985379721660800808.jpg",
     BASE_DIR / "5985379721660800809.jpg",
@@ -92,149 +65,165 @@ PROMO_MESSAGES_KH = [
     "⚽ តាមដានបច្ចុប្បន្នភាពកីឡាជាមួយ G168-SPORT!",
 ]
 
-# ==================================================
-# DATABASE
-# ==================================================
 
 def db_connection():
     conn = sqlite3.connect(DB_PATH, timeout=30)
-
     conn.execute("""
         CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY,
             active INTEGER NOT NULL DEFAULT 1
         )
     """)
-
     conn.execute("""
         CREATE TABLE IF NOT EXISTS settings (
             name TEXT PRIMARY KEY,
             value INTEGER NOT NULL
         )
     """)
-
     conn.execute("""
         INSERT OR IGNORE INTO settings (name, value)
         VALUES ('image_index', 0)
     """)
-
-    # Remember when each user last received the welcome message.
     conn.execute("""
         CREATE TABLE IF NOT EXISTS start_cooldowns (
             user_id INTEGER PRIMARY KEY,
             last_start REAL NOT NULL
         )
     """)
-
-    # Remember each user's scheduled reminder time.
     conn.execute("""
         CREATE TABLE IF NOT EXISTS user_schedules (
             user_id INTEGER PRIMARY KEY,
             next_send REAL NOT NULL
         )
     """)
-
     conn.commit()
     return conn
 
 
 def register_user(user_id):
-    with db_connection() as conn:
-        conn.execute("""
-            INSERT INTO users (user_id, active)
-            VALUES (?, 1)
-            ON CONFLICT(user_id)
-            DO UPDATE SET active = 1
-        """, (user_id,))
+    conn = db_connection()
+    try:
+        with conn:
+            conn.execute("""
+                INSERT INTO users (user_id, active) VALUES (?, 1)
+                ON CONFLICT(user_id) DO UPDATE SET active = 1
+            """, (user_id,))
+    finally:
+        conn.close()
 
 
 def deactivate_user(user_id):
-    with db_connection() as conn:
-        conn.execute(
-            "UPDATE users SET active = 0 WHERE user_id = ?",
-            (user_id,),
-        )
+    conn = db_connection()
+    try:
+        with conn:
+            conn.execute("UPDATE users SET active = 0 WHERE user_id = ?", (user_id,))
+            conn.execute("DELETE FROM user_schedules WHERE user_id = ?", (user_id,))
+    finally:
+        conn.close()
 
 
-def list_active_users():
-    with db_connection() as conn:
-        rows = conn.execute(
-            "SELECT user_id FROM users WHERE active = 1"
-        ).fetchall()
-    return [row[0] for row in rows]
+def clear_cooldown(user_id):
+    conn = db_connection()
+    try:
+        with conn:
+            conn.execute("DELETE FROM start_cooldowns WHERE user_id = ?", (user_id,))
+    finally:
+        conn.close()
+
+
+def count_active_users():
+    conn = db_connection()
+    try:
+        row = conn.execute("SELECT COUNT(*) FROM users WHERE active = 1").fetchone()
+        return row[0] if row else 0
+    finally:
+        conn.close()
 
 
 def get_next_image():
-    with db_connection() as conn:
-        row = conn.execute(
-            "SELECT value FROM settings WHERE name = 'image_index'"
-        ).fetchone()
-
-        index = (row[0] if row else 0) % len(ROTATION_IMAGES)
-        following = (index + 1) % len(ROTATION_IMAGES)
-
-        conn.execute("""
-            INSERT INTO settings (name, value)
-            VALUES ('image_index', ?)
-            ON CONFLICT(name)
-            DO UPDATE SET value = excluded.value
-        """, (following,))
-
+    conn = db_connection()
+    try:
+        with conn:
+            row = conn.execute(
+                "SELECT value FROM settings WHERE name = 'image_index'"
+            ).fetchone()
+            index = (row[0] if row else 0) % len(ROTATION_IMAGES)
+            following = (index + 1) % len(ROTATION_IMAGES)
+            conn.execute("""
+                INSERT INTO settings (name, value) VALUES ('image_index', ?)
+                ON CONFLICT(name) DO UPDATE SET value = excluded.value
+            """, (following,))
+    finally:
+        conn.close()
     return ROTATION_IMAGES[index]
 
 
 def welcome_cooldown_remaining(user_id, now):
-    with db_connection() as conn:
+    conn = db_connection()
+    try:
         row = conn.execute(
             "SELECT last_start FROM start_cooldowns WHERE user_id = ?",
             (user_id,),
         ).fetchone()
-
+    finally:
+        conn.close()
     if row is None:
         return 0
-
-    remaining = START_DELAY_SECONDS - (now - row[0])
-    return max(0, int(remaining))
+    return max(0, int(REMINDER_INTERVAL_SECONDS - (now - row[0])))
 
 
 def record_start_and_schedule(user_id, now):
-    with db_connection() as conn:
-        conn.execute("""
-            INSERT INTO start_cooldowns (user_id, last_start)
-            VALUES (?, ?)
-            ON CONFLICT(user_id)
-            DO UPDATE SET last_start = excluded.last_start
-        """, (user_id, now))
+    conn = db_connection()
+    try:
+        with conn:
+            conn.execute("""
+                INSERT INTO start_cooldowns (user_id, last_start) VALUES (?, ?)
+                ON CONFLICT(user_id) DO UPDATE SET last_start = excluded.last_start
+            """, (user_id, now))
+            conn.execute("""
+                INSERT INTO user_schedules (user_id, next_send) VALUES (?, ?)
+                ON CONFLICT(user_id) DO UPDATE SET next_send = excluded.next_send
+            """, (user_id, now + REMINDER_INTERVAL_SECONDS))
+    finally:
+        conn.close()
 
-        conn.execute("""
-            INSERT INTO user_schedules (user_id, next_send)
-            VALUES (?, ?)
-            ON CONFLICT(user_id)
-            DO UPDATE SET next_send = excluded.next_send
-        """, (user_id, now + START_DELAY_SECONDS))
+
+def get_due_users(now):
+    conn = db_connection()
+    try:
+        rows = conn.execute("""
+            SELECT s.user_id
+            FROM user_schedules s
+            JOIN users u ON u.user_id = s.user_id
+            WHERE u.active = 1 AND s.next_send <= ?
+        """, (now,)).fetchall()
+        return [row[0] for row in rows]
+    finally:
+        conn.close()
 
 
-# ==================================================
-# /START — WELCOME IMAGE IMMEDIATELY
-# ==================================================
+def push_next_send(user_id):
+    conn = db_connection()
+    try:
+        with conn:
+            conn.execute("""
+                UPDATE user_schedules SET next_send = ? WHERE user_id = ?
+            """, (time.time() + REMINDER_INTERVAL_SECONDS, user_id))
+    finally:
+        conn.close()
 
-async def start(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-):
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.effective_message
     user = update.effective_user
-
     if message is None or user is None:
         return
 
     now = time.time()
     remaining = welcome_cooldown_remaining(user.id, now)
-
     if remaining > 0:
         hours, remainder = divmod(remaining, 3600)
         minutes = (remainder + 59) // 60
-
         await message.reply_text(
             "⏳ You have already started G168-SPORT.\n\n"
             f"Please try again in about {hours}h {minutes}m."
@@ -243,101 +232,89 @@ async def start(
 
     record_start_and_schedule(user.id, now)
     register_user(user.id)
-
-    logger.info("Welcome sent/scheduled for user %s", user.id)
+    logger.info("Welcome sent to %s; first reminder in 3 hours.", user.id)
 
     if not WELCOME_IMAGE.is_file():
         logger.error("Welcome image missing: %s", WELCOME_IMAGE)
-        await message.reply_text(
-            WELCOME_TEXT,
-            reply_markup=KEYBOARD,
-        )
+        await message.reply_text(WELCOME_TEXT, reply_markup=KEYBOARD)
         return
 
     try:
         with WELCOME_IMAGE.open("rb") as photo:
             await message.reply_photo(
-                photo=photo,
-                caption=WELCOME_TEXT,
-                reply_markup=KEYBOARD,
+                photo=photo, caption=WELCOME_TEXT, reply_markup=KEYBOARD
             )
     except TelegramError:
         logger.exception("Failed to send welcome image")
-        await message.reply_text(
-            WELCOME_TEXT,
-            reply_markup=KEYBOARD,
-        )
+        await message.reply_text(WELCOME_TEXT, reply_markup=KEYBOARD)
 
 
-# ==================================================
-# /STOP — STOP AUTOMATIC MESSAGES
-# ==================================================
-
-async def stop(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-):
+async def stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     message = update.effective_message
-
     if user:
         deactivate_user(user.id)
-
-        with db_connection() as conn:
-            conn.execute(
-                "DELETE FROM user_schedules WHERE user_id = ?",
-                (user.id,),
-            )
-
+        clear_cooldown(user.id)
     if message:
         await message.reply_text(
             "Automatic updates stopped. Send /start to subscribe again."
         )
 
 
-# ==================================================
-# /STATUS — CHECK BOT STATUS
-# ==================================================
-
-async def status(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-):
+async def status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.effective_message
-
     if message:
         await message.reply_text(
             "✅ G168-SPORT bot is running.\n"
-            "First automatic reminder: 2 hours after /start.\n"
-            "Repeat interval: every 2 hours.\n"
-            f"Active subscribers: {len(list_active_users())}."
+            "First automatic reminder: 3 hours after /start.\n"
+            "Repeat interval: every 3 hours.\n"
+            f"Active subscribers: {count_active_users()}."
         )
 
 
-# ==================================================
-# AUTOMATIC IMAGE BROADCAST
-# Send only to users whose reminder is due.
-# ==================================================
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    message = update.effective_message
+    if message:
+        await message.reply_text(
+            "G168-SPORT Bot Help ⚽\n\n"
+            "/start - Welcome image and subscribe\n"
+            "/status - Check bot status\n"
+            "/stop - Stop automatic reminders\n"
+            "Send a message to receive a basic bot response.",
+            reply_markup=KEYBOARD,
+        )
+
+
+async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    message = update.effective_message
+    if message is None or not message.text:
+        return
+    text = message.text.strip().lower()
+
+    if any(word in text for word in ("hello", "hi", "hey", "សួស្តី")):
+        reply = (
+            "សួស្តី! សូមស្វាគមន៍មកកាន់ G168-SPORT ⚽\n"
+            "វាយ /help សម្រាប់ជំនួយ ឬប្រើប៊ូតុងខាងក្រោម។"
+        )
+    elif any(word in text for word in ("football", "soccer", "sport", "បាល់ទាត់", "កីឡា")):
+        reply = (
+            "⚽ សូមតាមដានព័ត៌មានកីឡា និងព័ត៌មានបាល់ទាត់ថ្មីៗ "
+            "តាមរយៈ Channel Update របស់យើង។"
+        )
+    else:
+        reply = (
+            "សូមអរគុណសម្រាប់សាររបស់អ្នក! ⚽\n"
+            "សម្រាប់ព័ត៌មានបន្ថែម សូមប្រើប៊ូតុង WEBSITE ឬ CHANNEL UPDATE។"
+        )
+    await message.reply_text(reply, reply_markup=KEYBOARD)
+
 
 async def broadcast(context: ContextTypes.DEFAULT_TYPE):
-    now = time.time()
-
-    with db_connection() as conn:
-        rows = conn.execute("""
-            SELECT s.user_id
-            FROM user_schedules s
-            JOIN users u ON u.user_id = s.user_id
-            WHERE u.active = 1 AND s.next_send <= ?
-        """, (now,)).fetchall()
-
-    due_users = [row[0] for row in rows]
-
+    due_users = get_due_users(time.time())
     if not due_users:
-        logger.info("No reminders due yet.")
         return
 
     image_path = get_next_image()
-
     if not image_path.is_file():
         logger.error("Scheduled image missing: %s", image_path)
         return
@@ -348,46 +325,69 @@ async def broadcast(context: ContextTypes.DEFAULT_TYPE):
         + "\n\n🌐 Website: https://heylink.me/855goal/"
         + "\n📢 Channel: https://t.me/Game855GOAL"
     )
+    image_bytes = image_path.read_bytes()
 
     for user_id in due_users:
+        # Advance the timer before sending to prevent rapid retries on errors.
+        push_next_send(user_id)
         try:
-            with image_path.open("rb") as photo:
-                await context.bot.send_photo(
-                    chat_id=user_id,
-                    photo=photo,
-                    caption=caption,
-                    reply_markup=KEYBOARD,
-                )
-
-            # Schedule this user's next message 2 hours later.
-            with db_connection() as conn:
-                conn.execute("""
-                    UPDATE user_schedules
-                    SET next_send = ?
-                    WHERE user_id = ?
-                """, (time.time() + BROADCAST_INTERVAL_SECONDS, user_id))
-
+            await context.bot.send_photo(
+                chat_id=user_id,
+                photo=image_bytes,
+                caption=caption,
+                reply_markup=KEYBOARD,
+            )
             await asyncio.sleep(0.05)
-
         except Forbidden:
             deactivate_user(user_id)
             logger.info("User blocked bot: %s", user_id)
-
         except TelegramError:
-            logger.exception("Failed sending to user %s", user_id)
+            logger.exception("Failed sending reminder to user %s", user_id)
 
 
-# ==================================================
-# APPLICATION STARTUP
-# ==================================================
+async def on_error(update, context: ContextTypes.DEFAULT_TYPE):
+    if isinstance(context.error, Conflict):
+        logger.error(
+            "Another bot process is using this token. Stop the other "
+            "Render service or local copy so only one polling process runs."
+        )
+        return
+    logger.error("Unhandled error", exc_info=context.error)
+
+
+def start_health_server():
+    # Optional for Render Web Services. Not needed for Background Workers.
+    port = os.getenv("PORT")
+    if not port:
+        return
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"G168-SPORT bot is running")
+
+        def do_HEAD(self):
+            self.send_response(200)
+            self.end_headers()
+
+        def log_message(self, *args):
+            pass
+
+    server = HTTPServer(("0.0.0.0", int(port)), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    logger.info("Health server listening on port %s", port)
+
 
 async def post_init(application: Application):
-    with db_connection():
-        pass
+    conn = db_connection()
+    conn.close()
+
+    me = await application.bot.get_me()
+    logger.info("Connected to Telegram as @%s", me.username)
 
     all_images = [WELCOME_IMAGE, *ROTATION_IMAGES]
-    missing = [p.name for p in all_images if not p.is_file()]
-
+    missing = [path.name for path in all_images if not path.is_file()]
     if missing:
         logger.warning("Missing image files: %s", ", ".join(missing))
 
@@ -397,23 +397,16 @@ async def post_init(application: Application):
             "python-telegram-bot[job-queue]==21.10"
         )
 
-    # Check every minute for users whose 2-hour reminder is due.
-    # This check frequency does NOT mean messages are sent every minute.
+    # Runs a check each minute, but sends only when each user's 3-hour
+    # deadline has arrived. A due reminder may be up to one minute late.
     application.job_queue.run_repeating(
         broadcast,
-        interval=60,
-        first=60,
+        interval=CHECK_INTERVAL_SECONDS,
+        first=CHECK_INTERVAL_SECONDS,
         name="G168-SPORT-due-reminders",
     )
+    logger.info("Bot started. User reminders repeat every 3 hours.")
 
-    logger.info(
-        "Bot started. User reminders are scheduled 2 hours apart."
-    )
-
-
-# ==================================================
-# RUN BOT
-# ==================================================
 
 def main():
     if not TOKEN:
@@ -427,13 +420,16 @@ def main():
         .post_init(post_init)
         .build()
     )
-
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("stop", stop))
     app.add_handler(CommandHandler("status", status))
+    app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+    app.add_error_handler(on_error)
 
+    start_health_server()
     logger.info("Starting G168-SPORT bot.")
-    app.run_polling()
+    app.run_polling(drop_pending_updates=True)
 
 
 if __name__ == "__main__":
