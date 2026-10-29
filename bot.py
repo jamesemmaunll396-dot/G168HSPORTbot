@@ -311,7 +311,7 @@ async def post_init(application: Application):
         logger.error("Missing image files: %s", ", ".join(missing))
 
     if INTERVAL_MINUTES < 1:
-        raise ValueError("BROADCAST_INTERVAL_MINUTES must be at least 1.")
+        raise ValueError("BROADCAST_INTERVAL_MINUTES", "180")
 
     if application.job_queue is None:
         raise RuntimeError(
