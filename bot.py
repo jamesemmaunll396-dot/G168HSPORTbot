@@ -16,31 +16,27 @@ from telegram.ext import (
 )
 
 # ==================================================
-# CONFIGURATION
+# CONFIGURATION — REMINDERS EVERY 2 HOURS
 # ==================================================
 
 BASE_DIR = Path(__file__).resolve().parent
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 
-# Automatic reminders every 2 hours (120 minutes)
-INTERVAL_MINUTES = int(
-    os.getenv("BROADCAST_INTERVAL_MINUTES", "120")
-)
+# Fixed at 2 hours: 120 minutes
+INTERVAL_MINUTES = 120
 
 DATA_DIR = Path(os.getenv("DATA_DIR", str(BASE_DIR)))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
-
 DB_PATH = DATA_DIR / "855goal_users.sqlite3"
 
 logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     level=logging.INFO,
 )
-
 logger = logging.getLogger("G168-SPORT")
 
 # ==================================================
-# WELCOME MESSAGE
+# ORIGINAL WELCOME MESSAGE — UNCHANGED
 # ==================================================
 
 WELCOME_TEXT = """Welcome To G168-SPORT
@@ -51,30 +47,28 @@ WELCOME_TEXT = """Welcome To G168-SPORT
 
 សូមជ្រើសរើសជម្រើសខាងក្រោម 👇"""
 
+# ==================================================
+# ORIGINAL BUTTONS — UNCHANGED
+# ==================================================
+
 KEYBOARD = InlineKeyboardMarkup([
-    [
-        InlineKeyboardButton(
-            "💬 DM NOW",
-            url="https://t.me/GOALWIN855",
-        )
-    ],
-    [
-        InlineKeyboardButton(
-            "🌐 WEBSITE",
-            url="https://heylink.me/855goal/",
-        )
-    ],
-    [
-        InlineKeyboardButton(
-            "📢 CHANNEL UPDATE",
-            url="https://t.me/Game855GOAL",
-        )
-    ],
+    [InlineKeyboardButton(
+        "💬 DM NOW",
+        url="https://t.me/GOALWIN855"
+    )],
+    [InlineKeyboardButton(
+        "🌐 WEBSITE",
+        url="https://heylink.me/855goal/"
+    )],
+    [InlineKeyboardButton(
+        "📢 CHANNEL UPDATE",
+        url="https://t.me/Game855GOAL"
+    )],
 ])
 
 # ==================================================
-# IMAGE FILES
-# Keep all six JPG files beside bot.py
+# ORIGINAL IMAGES — KEEP FILENAMES UNCHANGED
+# All images must be beside bot.py
 # ==================================================
 
 WELCOME_IMAGE = BASE_DIR / "5985379721660800813.jpg"
@@ -159,7 +153,7 @@ def get_next_image():
         ).fetchone()
 
         index = row[0] if row else 0
-        index = index % len(ROTATION_IMAGES)
+        index %= len(ROTATION_IMAGES)
         following = (index + 1) % len(ROTATION_IMAGES)
 
         conn.execute("""
@@ -173,7 +167,7 @@ def get_next_image():
 
 
 # ==================================================
-# /START — SEND WELCOME IMAGE IMMEDIATELY
+# /START — SEND ORIGINAL WELCOME IMAGE IMMEDIATELY
 # ==================================================
 
 async def start(
@@ -190,7 +184,7 @@ async def start(
     logger.info("User registered: %s", user.id)
 
     if not WELCOME_IMAGE.is_file():
-        logger.error("Welcome image not found: %s", WELCOME_IMAGE)
+        logger.error("Welcome image missing: %s", WELCOME_IMAGE)
         await message.reply_text(
             WELCOME_TEXT,
             reply_markup=KEYBOARD,
@@ -213,7 +207,7 @@ async def start(
 
 
 # ==================================================
-# /STOP — STOP AUTOMATIC MESSAGES
+# /STOP — UNSUBSCRIBE FROM AUTOMATIC REMINDERS
 # ==================================================
 
 async def stop(
@@ -228,12 +222,13 @@ async def stop(
 
     if message:
         await message.reply_text(
-            "Automatic updates stopped. Send /start to subscribe again."
+            "Automatic updates stopped. "
+            "Send /start to subscribe again."
         )
 
 
 # ==================================================
-# /STATUS — CHECK BOT STATUS
+# /STATUS — CHECK REMINDER INTERVAL
 # ==================================================
 
 async def status(
@@ -245,14 +240,14 @@ async def status(
     if message:
         await message.reply_text(
             "✅ G168-SPORT bot is running.\n"
-            f"Broadcast interval: {INTERVAL_MINUTES} minutes "
-            f"({INTERVAL_MINUTES / 60:g} hours).\n"
+            "Automatic reminder interval: 2 hours "
+            "(120 minutes).\n"
             f"Active subscribers: {len(list_active_users())}."
         )
 
 
 # ==================================================
-# AUTOMATIC IMAGE BROADCAST
+# SEND AUTOMATIC IMAGE REMINDERS
 # ==================================================
 
 async def broadcast(
@@ -267,7 +262,7 @@ async def broadcast(
     image_path = get_next_image()
 
     if not image_path.is_file():
-        logger.error("Scheduled image not found: %s", image_path)
+        logger.error("Scheduled image missing: %s", image_path)
         return
 
     caption = (
@@ -300,16 +295,10 @@ async def broadcast(
 
         except Forbidden:
             deactivate_user(user_id)
-            logger.info(
-                "User blocked bot; deactivated: %s",
-                user_id,
-            )
+            logger.info("Blocked user deactivated: %s", user_id)
 
         except TelegramError:
-            logger.exception(
-                "Failed sending to user %s",
-                user_id,
-            )
+            logger.exception("Failed sending to user %s", user_id)
 
     logger.info(
         "Broadcast complete: %d/%d delivered",
@@ -319,7 +308,7 @@ async def broadcast(
 
 
 # ==================================================
-# APPLICATION STARTUP
+# STARTUP — SCHEDULE EVERY 120 MINUTES
 # ==================================================
 
 async def post_init(application: Application):
@@ -328,45 +317,35 @@ async def post_init(application: Application):
 
     all_images = [WELCOME_IMAGE, *ROTATION_IMAGES]
     missing = [
-        str(path.name)
-        for path in all_images
-        if not path.is_file()
+        path.name for path in all_images if not path.is_file()
     ]
 
     if missing:
-        logger.error(
+        logger.warning(
             "Missing image files: %s",
             ", ".join(missing),
         )
 
-    if INTERVAL_MINUTES < 1:
-        raise ValueError(
-            "BROADCAST_INTERVAL_MINUTES must be at least 1."
-        )
-
     if application.job_queue is None:
         raise RuntimeError(
-            "Job queue is unavailable. Install "
+            "JobQueue unavailable. Install "
             "python-telegram-bot[job-queue]==21.10"
         )
 
-    # First scheduled broadcast after 2 hours,
-    # then repeat every 2 hours.
     application.job_queue.run_repeating(
         broadcast,
-        interval=INTERVAL_MINUTES * 60,
-        first=INTERVAL_MINUTES * 60,
+        interval=2 * 60 * 60,
+        first=2 * 60 * 60,
         name="G168-SPORT-broadcast",
     )
 
     logger.info(
-        "Bot initialized; broadcasts scheduled every %d minutes.",
-        INTERVAL_MINUTES,
+        "G168-SPORT started. Reminders repeat every 2 hours."
     )
 
 
 # ==================================================
-# START BOT
+# RUN BOT
 # ==================================================
 
 def main():
