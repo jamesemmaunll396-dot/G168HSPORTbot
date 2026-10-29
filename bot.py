@@ -6,7 +6,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler
 from apscheduler.schedulers.background import BackgroundScheduler
 
-# ដោះស្រាយបញ្ហា Event Loop សម្រាប់ Python 3.14+
+# Handle Event Loop for Python 3.14+
 try:
     asyncio.get_running_loop()
 except RuntimeError:
@@ -18,16 +18,16 @@ except RuntimeError:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
 
-# បើកដំណើរការប្រព័ន្ធ Logging
+# Enable logging
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
 logger = logging.getLogger(__name__)
 
-# ការកំណត់តេឡេក្រាមតូខន
+# Telegram Bot Token environment variable
 TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")  
 
-# អត្ថបទស្វាគមន៍
+# Welcome text in Khmer
 WELCOME_TEXT = """Welcome To G168-SPORT
 
 សូមស្វាគមន៍មកកាន់ G168-SPORT!
@@ -36,14 +36,14 @@ WELCOME_TEXT = """Welcome To G168-SPORT
 
 សូមជ្រើសរើសជម្រើសខាងក្រោម 👇"""
 
-# ប៊ូតុងតំណភ្ជាប់
+# Inline keyboard buttons
 reply_markup = InlineKeyboardMarkup([
     [InlineKeyboardButton("💬 DM NOW", url="https://t.me/GOALWIN855")],
     [InlineKeyboardButton("🌐 WEBSITE", url="https://heylink.me/855goal/")],
     [InlineKeyboardButton("📢 CHANNEL UPDATE", url="https://t.me/Game855GOAL")]
 ])
 
-# សារផ្សព្វផ្សាយជាភាសាខ្មែរ
+# Promotional messages in Khmer
 PROMO_MESSAGES_KH = [
     "🔥 ចុះឈ្មោះនៅលើគេហទំព័ររបស់យើងថ្ងៃនេះ ដើម្បីទទួលបានកាដូឥតគិតថ្លៃ ១០០$ ⭐️",
     "🎁 ចូលរួមជាមួយគេហទំព័រយើងថ្ងៃនេះ ហើយស្វែងរកប្រាក់រង្វាន់ឥតគិតថ្លៃជាច្រើន 🎁",
@@ -57,10 +57,10 @@ PROMO_MESSAGES_KH = [
     "⭐️ កុំឱ្យឱកាសនេះកន្លងផុត! ចុះឈ្មោះលើគេហទំព័រយើងថ្ងៃនេះដើម្បីទាមទារប្រាក់រង្វាន់ឥតគិតថ្លៃរបស់អ្នក ⭐️"
 ]
 
-# បញ្ជីរក្សាទុក ID អ្នកប្រើប្រាស់
+# Store active users
 active_users = set()
 
-# បញ្ជីរូបភាព
+# Image files list
 IMAGE_FILES = [
     "images/image1.jpg",
     "images/image2.jpg",
@@ -74,7 +74,7 @@ current_image_index = 1
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     active_users.add(user_id)
-    logger.info(f"អ្នកប្រើប្រាស់ថ្មីបានចាប់ផ្តើម Bot: {user_id}")
+    logger.info(f"New user started the bot: {user_id}")
 
     if os.path.exists(IMAGE_FILES[0]):
         with open(IMAGE_FILES[0], "rb") as photo:
@@ -92,13 +92,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def send_scheduled_updates(application):
     global current_image_index
     if not active_users:
-        logger.info("មិនមានអ្នកប្រើប្រាស់សកម្មសម្រាប់ផ្ញើសារទេ។")
+        logger.info("No active users to broadcast to.")
         return
 
     image_path = IMAGE_FILES[current_image_index]
     caption_text = f"🔥 **G168-SPORT Update**\n\n{random.choice(PROMO_MESSAGES_KH)}"
 
-    logger.info(f"កំពុងផ្ញើរូបភាពលំដាប់ទី {current_image_index} ទៅកាន់អ្នកប្រើប្រាស់ចំនួន {len(active_users)} នាក់។")
+    logger.info(f"Broadcasting image index {current_image_index} to {len(active_users)} users.")
 
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
@@ -121,34 +121,34 @@ def send_scheduled_updates(application):
                         text=caption_text, 
                         reply_markup=reply_markup
                     )
-                # หน่วงពេល (Sleep) 0.1 វិនាទីរវាងការផ្ញើក្នុងម្នាក់ៗ ដើម្បីការពារ Telegram Rate Limit
+                # Small delay to prevent rate limits
                 await asyncio.sleep(0.1)
             except Exception as e:
-                logger.error(f"បរាជ័យក្នុងការផ្ញើសារទៅកាន់ {user_id}: {e}")
+                logger.error(f"Failed to send message to {user_id}: {e}")
                 active_users.discard(user_id)
 
     loop.run_until_complete(broadcast())
     loop.close()
 
-    # ប្តូរទៅរូបភាពបន្ទាប់
+    # Rotate to next image
     current_image_index = (current_image_index + 1) % len(IMAGE_FILES)
     if current_image_index == 0:
         current_image_index = 1
 
 def main():
     if not TOKEN:
-        logger.error("មិនទាន់បានកំណត់ Telegram Bot Token ទេ។")
+        logger.error("TELEGRAM_BOT_TOKEN environment variable not set!")
         return
 
     application = ApplicationBuilder().token(TOKEN).build()
     application.add_handler(CommandHandler("start", start))
 
-    # កំណត់កាលវិភាគស្វ័យប្រវត្តិប្តូរមកត្រឹម ១ ម៉ោងម្តង (hours=1)
+    # Scheduled updates set to every 2 hours (hours=2)
     scheduler = BackgroundScheduler()
-    scheduler.add_job(send_scheduled_updates, 'interval', hours=1, args=[application])
+    scheduler.add_job(send_scheduled_updates, 'interval', hours=2, args=[application])
     scheduler.start()
 
-    logger.info("Bot កំពុងចាប់ផ្តើមដំណើរការហើយ (ផ្ញើជូនរៀងរាល់ ១ ម៉ោងម្តង)...")
+    logger.info("Bot is running and scheduled to send updates every 2 hours...")
     application.run_polling()
 
 if __name__ == "__main__":
