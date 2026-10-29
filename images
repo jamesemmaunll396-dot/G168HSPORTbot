@@ -1,11 +1,12 @@
-image1.jpg (The welcome/first image)
-
-image2.jpg
-
-image3.jpg
-
-image4.jpg
-
-image5.jpg
-
-image6.jpg
+your-repo-name/
+│
+├── bot.py
+├── requirements.txt
+├── Procfile
+└── images/
+    ├── image1.jpg
+    ├── image2.jpg
+    ├── image3.jpg
+    ├── image4.jpg
+    ├── image5.jpg
+    └── image6.jpg
